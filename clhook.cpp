@@ -3,6 +3,7 @@
 #include <cassert>
 #include <map>
 #include <vector>
+#include <iostream>
 
 #ifdef __APPLE__
   #include <OpenCL/opencl.h>
@@ -29,7 +30,7 @@ void print_kernel_invocation(cl_kernel entry) {
   unsigned work_dim = info->work_dim;
   unsigned *global_work_size = info->global_work_size;
   unsigned *local_work_size = info->local_work_size;
-  printf("SENTINEL %s ", info->name);
+  printf("\nSENTINEL %s ", info->name);
   if (work_dim == 1) {
     printf("--global_size=%d ", global_work_size[0]);
     printf("--local_size=%d ", local_work_size[0]);
@@ -109,4 +110,42 @@ cl_int clEnqueueNDRangeKernel(
     command_queue, kernel, work_dim,
     global_work_offset, global_work_size, local_work_size,
     num_events_in_wait_list, event_wait_list, event);
+}
+
+typedef cl_program (*clCreateProgramWithSource_t)(
+  cl_context,cl_uint,const char **, const size_t *, cl_int *);
+static clCreateProgramWithSource_t realClCreateProgramWithSource = NULL;
+extern "C"
+cl_program clCreateProgramWithSource(
+  cl_context context,
+  cl_uint count,
+  const char **strings,
+  const size_t *lengths,
+  cl_int *errcode_ret) {
+  if (realClCreateProgramWithSource == NULL)
+    realClCreateProgramWithSource = (clCreateProgramWithSource_t)dlsym(RTLD_NEXT,"clCreateProgramWithSource");
+  assert(realClCreateProgramWithSource != NULL && "realClCreateProgramWithSource is null");
+	std::vector<std::string> code(count);
+	if (lengths == NULL) { // all strings are null-terminated
+		for (unsigned i = 0; i < count; i++) {
+			std::string line (strings[i]);
+			code.push_back(line);
+		}
+  } else { // lengths contains length of each entry in strings
+		for (unsigned i = 0; i < count; i++) {
+			if (lengths[i] == 0) { // entry is null-terminated
+				std::string line (strings[i]);
+				code.push_back(line);
+			} else { // entry has specified length
+				std::string line (strings[i], lengths[i]);
+				code.push_back(line);
+			}
+		}
+  }
+  std::cerr << "\nSENTINEL (program intercepted)" << std::endl;
+  for (unsigned i = 0; i < code.size(); i++) {
+    std::cerr << code[i];
+  }
+
+  return realClCreateProgramWithSource(context, count, strings, lengths, errcode_ret);
 }
